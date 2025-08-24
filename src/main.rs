@@ -60,6 +60,10 @@ impl ZellijPlugin for State {
         if self.is_welcome_screen {
             self.active_screen = ActiveScreen::NewSession;
         }
+        request_permission(&[
+            PermissionType::ReadApplicationState,
+            PermissionType::ChangeApplicationState,
+        ]);
         subscribe(&[
             EventType::ModeUpdate,
             EventType::SessionUpdate,
