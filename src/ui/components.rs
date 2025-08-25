@@ -16,8 +16,8 @@ pub struct ListItem {
 }
 
 impl ListItem {
-    pub fn from_session_info(session_ui_info: &SessionUiInfo, colors: Colors) -> Self {
-        let session_ui_line = build_session_ui_line(session_ui_info, colors);
+    pub fn from_session_info(session_ui_info: &SessionUiInfo, colors: Colors, is_expanded: bool) -> Self {
+        let session_ui_line = build_session_ui_line(session_ui_info, colors, is_expanded);
         ListItem {
             name: session_ui_info.name.clone(),
             session_name: Some(session_ui_line),
@@ -30,8 +30,9 @@ impl ListItem {
         session_ui_info: &SessionUiInfo,
         tab_ui_info: &TabUiInfo,
         colors: Colors,
+        is_expanded: bool,
     ) -> Self {
-        let session_ui_line = build_session_ui_line(session_ui_info, colors);
+        let session_ui_line = build_session_ui_line(session_ui_info, colors, is_expanded);
         let tab_ui_line = build_tab_ui_line(tab_ui_info, colors);
         ListItem {
             name: tab_ui_info.name.clone(),
@@ -46,8 +47,9 @@ impl ListItem {
         tab_ui_info: &TabUiInfo,
         pane_ui_info: &PaneUiInfo,
         colors: Colors,
+        is_expanded: bool,
     ) -> Self {
-        let session_ui_line = build_session_ui_line(session_ui_info, colors);
+        let session_ui_line = build_session_ui_line(session_ui_info, colors, is_expanded);
         let tab_ui_line = build_tab_ui_line(tab_ui_info, colors);
         let pane_ui_line = build_pane_ui_line(pane_ui_info, colors);
         ListItem {
@@ -375,7 +377,7 @@ impl LineToRender {
     }
 }
 
-pub fn build_session_ui_line(session_ui_info: &SessionUiInfo, colors: Colors) -> Vec<UiSpan> {
+pub fn build_session_ui_line(session_ui_info: &SessionUiInfo, colors: Colors, is_expanded: bool) -> Vec<UiSpan> {
     let mut ui_spans = vec![];
     let tab_count_text = session_ui_info.tabs.len();
     let total_pane_count_text = session_ui_info
@@ -389,11 +391,17 @@ pub fn build_session_ui_line(session_ui_info: &SessionUiInfo, colors: Colors) ->
     let session_name = &session_ui_info.name;
     let connected_users = format!("{}", session_ui_info.connected_users);
     let connected_users_styled = colors.connected_users(&connected_users);
-    let session_bullet_span =
+    let session_bullet_span = if is_expanded {
         UiSpan::UiSpanTelescope(UiSpanTelescope::new(vec![StringAndLength::new(
             format!(" > "),
             3,
-        )]));
+        )]))
+    } else {
+        UiSpan::UiSpanTelescope(UiSpanTelescope::new(vec![StringAndLength::new(
+            format!("   "),
+            3,
+        )]))
+    };
     let session_name_span = UiSpan::TruncatableUiSpan(TruncatableUiSpan::new(
         session_name.clone(),
         SpanStyle::ForegroundBold(colors.palette.text_unselected.emphasis_0),
@@ -522,15 +530,39 @@ pub fn minimize_lines(
     (start_index, anchor_index, end_index, line_count_to_remove)
 }
 
-pub fn render_prompt(search_term: &str, colors: Colors, x: usize, y: usize) {
-    let prompt = colors.session_and_folder_entry(&format!("Search:"));
-    let search_term = colors.bold(&format!("{}_", search_term));
+pub fn render_prompt(search_term: &str, cursor_pos: usize, is_expanded: bool, colors: Colors, x: usize, y: usize) {
+    // Show different prompt based on expansion state
+    let prompt_text = if is_expanded {
+        "Search (expanded):"
+    } else {
+        "Search:"
+    };
+    let prompt = colors.session_and_folder_entry(prompt_text);
+    
+    // Build search term with cursor
+    let mut display_text = String::new();
+    let chars: Vec<char> = search_term.chars().collect();
+    
+    for (i, &ch) in chars.iter().enumerate() {
+        if i == cursor_pos {
+            // Show cursor as inverted character or block
+            display_text.push_str(&colors.bold(&format!("\u{1b}[7m{}\u{1b}[27m", ch)));
+        } else {
+            display_text.push(ch);
+        }
+    }
+    
+    // If cursor is at the end, show it as an underscore
+    if cursor_pos >= chars.len() {
+        display_text.push_str(&colors.bold("_"));
+    }
+    
     println!(
         "\u{1b}[{};{}H\u{1b}[0m{} {}\n",
         y + 1,
         x,
         prompt,
-        search_term
+        display_text
     );
 }
 

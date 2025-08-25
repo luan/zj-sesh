@@ -33,6 +33,7 @@ struct State {
     sessions: SessionList,
     resurrectable_sessions: ResurrectableSessions,
     search_term: String,
+    search_cursor: usize, // Cursor position in search term
     new_session_info: NewSessionInfo,
     renaming_session_name: Option<String>,
     error: Option<String>,
@@ -150,7 +151,7 @@ impl ZellijPlugin for State {
                 } else if self.show_kill_all_sessions_warning {
                     self.render_kill_all_sessions_warning(height, width, x, y);
                 } else {
-                    render_prompt(&self.search_term, self.colors, x, y + 2);
+                    render_prompt(&self.search_term, self.search_cursor, self.sessions.is_expanded(), self.colors, x, y + 2);
                     let room_for_list = height.saturating_sub(6); // search line and controls;
                     self.sessions.update_rows(room_for_list);
                     let list =
@@ -257,10 +258,6 @@ impl State {
                 self.new_session_info.handle_key(key);
                 should_render = true;
             },
-            BareKey::Char('w') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
-                self.active_screen = ActiveScreen::New;
-                should_render = true;
-            },
             BareKey::Tab if key.has_no_modifiers() => {
                 self.toggle_active_screen();
                 should_render = true;
@@ -350,6 +347,7 @@ impl State {
                     kill_sessions(&all_other_sessions);
                     self.reset_selected_index();
                     self.search_term.clear();
+                    self.search_cursor = 0;
                     self.sessions
                         .update_search_term(&self.search_term, &self.colors);
                     self.show_kill_all_sessions_warning = false;
@@ -375,11 +373,11 @@ impl State {
                     self.sessions.result_shrink();
                     should_render = true;
                 },
-                BareKey::Char('f') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                BareKey::Char('.') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
                     self.sessions.result_expand();
                     should_render = true;
                 },
-                BareKey::Char('b') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                BareKey::Char(',') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
                     self.sessions.result_shrink();
                     should_render = true;
                 },
@@ -415,6 +413,13 @@ impl State {
                     self.sessions.result_expand();
                     should_render = true;
                 },
+                BareKey::Char('t') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    // Toggle session expansion 
+                    self.sessions.toggle_expansion();
+                    // Need to update search results since they depend on expansion state
+                    self.sessions.update_search_term(&self.search_term, &self.colors);
+                    should_render = true;
+                },
                 BareKey::Enter if key.has_no_modifiers() => {
                     self.handle_selection();
                     should_render = true;
@@ -425,7 +430,9 @@ impl State {
                     } else if let Some(new_session_name) = self.renaming_session_name.as_mut() {
                         new_session_name.push(character);
                     } else {
-                        self.search_term.push(character);
+                        // Insert character at cursor position
+                        self.search_term.insert(self.search_cursor, character);
+                        self.search_cursor += 1;
                         self.sessions
                             .update_search_term(&self.search_term, &self.colors);
                     }
@@ -438,15 +445,13 @@ impl State {
                         } else {
                             new_session_name.pop();
                         }
-                    } else {
-                        self.search_term.pop();
+                    } else if self.search_cursor > 0 {
+                        // Delete character before cursor
+                        self.search_cursor -= 1;
+                        self.search_term.remove(self.search_cursor);
                         self.sessions
                             .update_search_term(&self.search_term, &self.colors);
                     }
-                    should_render = true;
-                },
-                BareKey::Char('w') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
-                    self.active_screen = ActiveScreen::New;
                     should_render = true;
                 },
                 BareKey::Char('r') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
@@ -458,6 +463,7 @@ impl State {
                         kill_sessions(&[selected_session_name]);
                         self.reset_selected_index();
                         self.search_term.clear();
+                        self.search_cursor = 0;
                         self.sessions
                             .update_search_term(&self.search_term, &self.colors);
                     } else {
@@ -477,9 +483,89 @@ impl State {
                 BareKey::Char('x') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
                     disconnect_other_clients()
                 },
+                // Readline bindings for search field
+                BareKey::Char('f') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    // Move cursor forward (right)
+                    if self.renaming_session_name.is_none() && self.search_cursor < self.search_term.len() {
+                        self.search_cursor += 1;
+                        should_render = true;
+                    }
+                },
+                BareKey::Char('b') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    // Move cursor backward (left)
+                    if self.renaming_session_name.is_none() && self.search_cursor > 0 {
+                        self.search_cursor -= 1;
+                        should_render = true;
+                    }
+                },
+                BareKey::Char('a') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    // Move to beginning of line
+                    if self.renaming_session_name.is_none() {
+                        self.search_cursor = 0;
+                        should_render = true;
+                    }
+                },
+                BareKey::Char('e') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    // Check if we're in session expansion toggle mode or readline end-of-line
+                    if self.renaming_session_name.is_none() {
+                        // If search field is focused, move to end of line (readline behavior)
+                        self.search_cursor = self.search_term.len();
+                        should_render = true;
+                    }
+                },
+                BareKey::Char('k') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    // Check if we're using vim navigation or readline kill-to-end
+                    if self.renaming_session_name.is_none() && !self.search_term.is_empty() {
+                        // Kill from cursor to end of line (readline behavior)
+                        self.search_term.truncate(self.search_cursor);
+                        self.sessions
+                            .update_search_term(&self.search_term, &self.colors);
+                        should_render = true;
+                    } else {
+                        // Vim-style up navigation
+                        self.sessions.move_selection_up();
+                        should_render = true;
+                    }
+                },
+                BareKey::Char('u') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    // Kill entire line (readline)
+                    if self.renaming_session_name.is_none() && !self.search_term.is_empty() {
+                        self.search_term.clear();
+                        self.search_cursor = 0;
+                        self.sessions
+                            .update_search_term(&self.search_term, &self.colors);
+                        self.reset_selected_index();
+                        should_render = true;
+                    }
+                },
+                BareKey::Char('w') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    // Delete word backward (readline)
+                    if self.renaming_session_name.is_none() && self.search_cursor > 0 {
+                        let mut new_cursor = self.search_cursor;
+                        let chars: Vec<char> = self.search_term.chars().collect();
+                        
+                        // Skip whitespace backwards
+                        while new_cursor > 0 && chars[new_cursor - 1].is_whitespace() {
+                            new_cursor -= 1;
+                        }
+                        
+                        // Delete word backwards
+                        while new_cursor > 0 && !chars[new_cursor - 1].is_whitespace() {
+                            new_cursor -= 1;
+                        }
+                        
+                        // Remove the characters
+                        self.search_term.drain(new_cursor..self.search_cursor);
+                        self.search_cursor = new_cursor;
+                        self.sessions
+                            .update_search_term(&self.search_term, &self.colors);
+                        should_render = true;
+                    }
+                },
                 BareKey::Char('c') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
                     if !self.search_term.is_empty() {
                         self.search_term.clear();
+                        self.search_cursor = 0;
                         self.sessions
                             .update_search_term(&self.search_term, &self.colors);
                         self.reset_selected_index();
@@ -565,10 +651,6 @@ impl State {
             },
             BareKey::Backspace if key.has_no_modifiers() => {
                 self.resurrectable_sessions.handle_backspace();
-                should_render = true;
-            },
-            BareKey::Char('w') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
-                self.active_screen = ActiveScreen::New;
                 should_render = true;
             },
             BareKey::Tab if key.has_no_modifiers() => {
@@ -672,6 +754,7 @@ impl State {
                 }
                 self.reset_selected_index();
                 self.search_term.clear();
+                self.search_cursor = 0;
                 self.sessions
                     .update_search_term(&self.search_term, &self.colors);
                 if !self.is_welcome_screen {

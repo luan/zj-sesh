@@ -14,6 +14,7 @@ pub struct SessionList {
     pub selected_search_index: Option<usize>,
     pub search_results: Vec<SearchResult>,
     pub is_searching: bool,
+    pub show_expanded_content: bool, // Toggle for showing tabs/panes
 }
 
 impl SessionList {
@@ -89,30 +90,33 @@ impl SessionList {
             let session_name = session.name.clone();
             let is_current_session = session.is_current_session;
             list_items.push((
-                ListItem::from_session_info(session, *colors),
+                ListItem::from_session_info(session, *colors, self.show_expanded_content),
                 session_name.clone(),
                 None,
                 None,
                 is_current_session,
             ));
-            for tab in &session.tabs {
-                let tab_position = tab.position;
-                list_items.push((
-                    ListItem::from_tab_info(session, tab, *colors),
-                    session_name.clone(),
-                    Some(tab_position),
-                    None,
-                    is_current_session,
-                ));
-                for pane in &tab.panes {
-                    let pane_id = (pane.pane_id, pane.is_plugin);
+            // Only show tabs and panes if expansion is enabled
+            if self.show_expanded_content {
+                for tab in &session.tabs {
+                    let tab_position = tab.position;
                     list_items.push((
-                        ListItem::from_pane_info(session, tab, pane, *colors),
+                        ListItem::from_tab_info(session, tab, *colors, self.show_expanded_content),
                         session_name.clone(),
                         Some(tab_position),
-                        Some(pane_id),
+                        None,
                         is_current_session,
                     ));
+                    for pane in &tab.panes {
+                        let pane_id = (pane.pane_id, pane.is_plugin);
+                        list_items.push((
+                            ListItem::from_pane_info(session, tab, pane, *colors, self.show_expanded_content),
+                            session_name.clone(),
+                            Some(tab_position),
+                            Some(pane_id),
+                            is_current_session,
+                        ));
+                    }
                 }
             }
         }
@@ -296,6 +300,10 @@ impl SessionList {
         self.session_ui_infos.get(index)
     }
     pub fn result_expand(&mut self) {
+        // Only allow expansion if expanded content is being shown
+        if !self.show_expanded_content {
+            return;
+        }
         // we can't move this to SelectedIndex because the borrow checker is mean
         match self.selected_index {
             SelectedIndex(Some(selected_session), None, None) => {
@@ -321,7 +329,10 @@ impl SessionList {
         }
     }
     pub fn result_shrink(&mut self) {
-        self.selected_index.result_shrink();
+        // Only allow shrinking if expanded content is being shown
+        if self.show_expanded_content {
+            self.selected_index.result_shrink();
+        }
     }
     pub fn update_rows(&mut self, rows: usize) {
         if let Some(search_result_rows_until_selected) = self.selected_search_index.map(|i| {
@@ -366,6 +377,15 @@ impl SessionList {
                 }
             })
             .collect()
+    }
+    pub fn toggle_expansion(&mut self) {
+        self.show_expanded_content = !self.show_expanded_content;
+        // Reset selection when toggling expansion to avoid confusion
+        self.selected_index.1 = None;
+        self.selected_index.2 = None;
+    }
+    pub fn is_expanded(&self) -> bool {
+        self.show_expanded_content
     }
 }
 

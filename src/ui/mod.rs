@@ -9,7 +9,7 @@ use components::{
 };
 
 macro_rules! render_assets {
-    ($assets:expr, $line_count_to_remove:expr, $selected_index:expr, $to_render_until_selected: expr, $to_render_after_selected:expr, $has_deeper_selected_assets:expr, $max_cols:expr, $colors:expr) => {{
+    ($assets:expr, $line_count_to_remove:expr, $selected_index:expr, $to_render_until_selected: expr, $to_render_after_selected:expr, $has_deeper_selected_assets:expr, $max_cols:expr, $colors:expr, $is_expanded:expr) => {{
         let (start_index, anchor_asset_index, end_index, line_count_to_remove) =
             minimize_lines($assets.len(), $line_count_to_remove, $selected_index);
         let mut truncated_result_count_above = start_index;
@@ -19,7 +19,7 @@ macro_rules! render_assets {
         {
             for asset in assets_to_render_before_selected {
                 let mut asset: LineToRender =
-                    asset.as_line_to_render(current_index, $max_cols, $colors);
+                    asset.as_line_to_render(current_index, $max_cols, $colors, $is_expanded);
                 asset.add_truncated_results(truncated_result_count_above);
                 truncated_result_count_above = 0;
                 current_index += 1;
@@ -29,7 +29,7 @@ macro_rules! render_assets {
         if let Some(selected_asset) = $assets.get(anchor_asset_index) {
             if $selected_index.is_some() && !$has_deeper_selected_assets {
                 let mut selected_asset: LineToRender =
-                    selected_asset.as_line_to_render(current_index, $max_cols, $colors);
+                    selected_asset.as_line_to_render(current_index, $max_cols, $colors, $is_expanded);
                 selected_asset.make_selected(true);
                 selected_asset.add_truncated_results(truncated_result_count_above);
                 if anchor_asset_index + 1 >= end_index {
@@ -43,6 +43,7 @@ macro_rules! render_assets {
                     current_index,
                     $max_cols,
                     $colors,
+                    $is_expanded,
                 ));
                 current_index += 1;
             }
@@ -52,7 +53,7 @@ macro_rules! render_assets {
         {
             for asset in assets_to_render_after_selected.iter().rev() {
                 let mut asset: LineToRender =
-                    asset.as_line_to_render(current_index, $max_cols, $colors);
+                    asset.as_line_to_render(current_index, $max_cols, $colors, $is_expanded);
                 asset.add_truncated_results(truncated_result_count_below);
                 truncated_result_count_below = 0;
                 current_index += 1;
@@ -136,7 +137,8 @@ impl SessionList {
             to_render_after_selected,
             self.selected_index.1.is_some(),
             max_cols,
-            colors
+            colors,
+            self.show_expanded_content
         )
     }
     fn render_tabs(
@@ -164,7 +166,8 @@ impl SessionList {
                 to_render_after_selected,
                 self.selected_index.2.is_some(),
                 max_cols,
-                colors
+                colors,
+                self.show_expanded_content
             )
         } else {
             line_count_to_remove
@@ -201,7 +204,8 @@ impl SessionList {
                 to_render_after_selected,
                 false,
                 max_cols,
-                colors
+                colors,
+                self.show_expanded_content
             )
         } else {
             line_count_to_remove
@@ -268,9 +272,10 @@ impl SessionUiInfo {
         _session_index: u8,
         mut max_cols: usize,
         colors: Colors,
+        is_expanded: bool,
     ) -> LineToRender {
         let mut line_to_render = LineToRender::new(colors);
-        let ui_spans = build_session_ui_line(&self, colors);
+        let ui_spans = build_session_ui_line(&self, colors, is_expanded);
         for span in ui_spans {
             span.render(None, &mut line_to_render, &mut max_cols);
         }
@@ -325,6 +330,7 @@ impl TabUiInfo {
         _session_index: u8,
         mut max_cols: usize,
         colors: Colors,
+        _is_expanded: bool,
     ) -> LineToRender {
         let mut line_to_render = LineToRender::new(colors);
         let ui_spans = build_tab_ui_line(&self, colors);
@@ -349,6 +355,7 @@ impl PaneUiInfo {
         _session_index: u8,
         mut max_cols: usize,
         colors: Colors,
+        _is_expanded: bool,
     ) -> LineToRender {
         let mut line_to_render = LineToRender::new(colors);
         let ui_spans = build_pane_ui_line(&self, colors);
