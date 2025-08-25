@@ -34,6 +34,26 @@ impl SessionList {
         forbidden_sessions.sort_unstable_by(|a, b| a.name.cmp(&b.name));
         self.session_ui_infos = session_ui_infos;
         self.forbidden_sessions = forbidden_sessions;
+        
+        // Validate selection indices after session update to prevent out-of-bounds errors
+        if let Some(selected) = self.selected_index.0 {
+            if selected >= self.session_ui_infos.len() {
+                // Selection is out of bounds, reset to current session if available
+                if !self.session_ui_infos.is_empty() && self.session_ui_infos[0].is_current_session {
+                    self.selected_index.0 = Some(0);
+                } else {
+                    self.selected_index.0 = None;
+                }
+                // Reset sub-selections when main selection changes
+                self.selected_index.1 = None;
+                self.selected_index.2 = None;
+            }
+        } else {
+            // Pre-select the current session only on first load to prevent flickering
+            if !self.session_ui_infos.is_empty() && self.session_ui_infos[0].is_current_session && !self.is_searching {
+                self.selected_index.0 = Some(0);
+            }
+        }
     }
     pub fn update_search_term(&mut self, search_term: &str, colors: &Colors) {
         let mut flattened_assets = self.flatten_assets(colors);

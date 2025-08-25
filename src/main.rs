@@ -19,17 +19,12 @@ use ui::{
 use resurrectable_sessions::ResurrectableSessions;
 use session_list::SessionList;
 
-#[derive(Clone, Debug, Copy)]
+#[derive(Clone, Debug, Copy, Default)]
 enum ActiveScreen {
-    NewSession,
-    AttachToSession,
-    ResurrectSession,
-}
-
-impl Default for ActiveScreen {
-    fn default() -> Self {
-        ActiveScreen::AttachToSession
-    }
+    New,
+    #[default]
+    Attach,
+    Resurrect,
 }
 
 #[derive(Default)]
@@ -58,7 +53,7 @@ impl ZellijPlugin for State {
             .map(|v| v == "true")
             .unwrap_or(false);
         if self.is_welcome_screen {
-            self.active_screen = ActiveScreen::NewSession;
+            self.active_screen = ActiveScreen::New;
         }
         request_permission(&[
             PermissionType::ReadApplicationState,
@@ -74,20 +69,17 @@ impl ZellijPlugin for State {
 
     fn pipe(&mut self, pipe_message: PipeMessage) -> bool {
         if pipe_message.name == "filepicker_result" {
-            match (pipe_message.payload, pipe_message.args.get("request_id")) {
-                (Some(payload), Some(request_id)) => {
-                    match self.request_ids.iter().position(|p| p == request_id) {
-                        Some(request_id_position) => {
-                            self.request_ids.remove(request_id_position);
-                            let new_session_folder = std::path::PathBuf::from(payload);
-                            self.new_session_info.new_session_folder = Some(new_session_folder);
-                        },
-                        None => {
-                            eprintln!("request id not found");
-                        },
-                    }
-                },
-                _ => {},
+            if let (Some(payload), Some(request_id)) = (pipe_message.payload, pipe_message.args.get("request_id")) {
+                match self.request_ids.iter().position(|p| p == request_id) {
+                    Some(request_id_position) => {
+                        self.request_ids.remove(request_id_position);
+                        let new_session_folder = std::path::PathBuf::from(payload);
+                        self.new_session_info.new_session_folder = Some(new_session_folder);
+                    },
+                    None => {
+                        eprintln!("request id not found");
+                    },
+                }
             }
             true
         } else {
@@ -142,7 +134,7 @@ impl ZellijPlugin for State {
         );
 
         match self.active_screen {
-            ActiveScreen::NewSession => {
+            ActiveScreen::New => {
                 render_new_session_block(
                     &self.new_session_info,
                     self.colors,
@@ -152,8 +144,8 @@ impl ZellijPlugin for State {
                     y + 2,
                 );
             },
-            ActiveScreen::AttachToSession => {
-                if let Some(new_session_name) = self.renaming_session_name.as_ref() {
+            ActiveScreen::Attach => {
+                if let Some(new_session_name) = &self.renaming_session_name {
                     render_renaming_session_screen(&new_session_name, height, width, x, y + 2);
                 } else if self.show_kill_all_sessions_warning {
                     self.render_kill_all_sessions_warning(height, width, x, y);
@@ -169,11 +161,11 @@ impl ZellijPlugin for State {
                     }
                 }
             },
-            ActiveScreen::ResurrectSession => {
+            ActiveScreen::Resurrect => {
                 self.resurrectable_sessions.render(height, width, x, y);
             },
         }
-        if let Some(error) = self.error.as_ref() {
+        if let Some(error) = &self.error {
             render_error(&error, height, width, x, y);
         } else {
             render_controls_line(self.active_screen, width, self.colors, x + 1, rows);
@@ -195,13 +187,27 @@ impl State {
             return true;
         }
         match self.active_screen {
-            ActiveScreen::NewSession => self.handle_new_session_key(key),
-            ActiveScreen::AttachToSession => self.handle_attach_to_session(key),
-            ActiveScreen::ResurrectSession => self.handle_resurrect_session_key(key),
+            ActiveScreen::New => self.handle_new_session_key(key),
+            ActiveScreen::Attach => self.handle_attach_to_session(key),
+            ActiveScreen::Resurrect => self.handle_resurrect_session_key(key),
         }
     }
     fn handle_new_session_key(&mut self, key: KeyWithModifier) -> bool {
         let mut should_render = false;
+        
+        // Universal quit keys - escape and ctrl+c always quit
+        match key.bare_key {
+            BareKey::Esc if key.has_no_modifiers() && !self.is_welcome_screen => {
+                hide_self();
+                return false;
+            },
+            BareKey::Char('c') if key.has_modifiers(&[KeyModifier::Ctrl]) && !self.is_welcome_screen => {
+                hide_self();
+                return false;
+            },
+            _ => {}
+        }
+        
         match key.bare_key {
             BareKey::Down if key.has_no_modifiers() => {
                 self.new_session_info.handle_key(key);
@@ -209,6 +215,30 @@ impl State {
             },
             BareKey::Up if key.has_no_modifiers() => {
                 self.new_session_info.handle_key(key);
+                should_render = true;
+            },
+            BareKey::Char('n') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                // Simulate down arrow for ctrl+n
+                let down_key = KeyWithModifier::new(BareKey::Down);
+                self.new_session_info.handle_key(down_key);
+                should_render = true;
+            },
+            BareKey::Char('p') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                // Simulate up arrow for ctrl+p
+                let up_key = KeyWithModifier::new(BareKey::Up);
+                self.new_session_info.handle_key(up_key);
+                should_render = true;
+            },
+            BareKey::Char('j') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                // Simulate down arrow for ctrl+j (vim style)
+                let down_key = KeyWithModifier::new(BareKey::Down);
+                self.new_session_info.handle_key(down_key);
+                should_render = true;
+            },
+            BareKey::Char('k') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                // Simulate up arrow for ctrl+k (vim style)
+                let up_key = KeyWithModifier::new(BareKey::Up);
+                self.new_session_info.handle_key(up_key);
                 should_render = true;
             },
             BareKey::Enter if key.has_no_modifiers() => {
@@ -228,14 +258,41 @@ impl State {
                 should_render = true;
             },
             BareKey::Char('w') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
-                self.active_screen = ActiveScreen::NewSession;
+                self.active_screen = ActiveScreen::New;
                 should_render = true;
             },
             BareKey::Tab if key.has_no_modifiers() => {
                 self.toggle_active_screen();
                 should_render = true;
             },
-            BareKey::Char('f') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+            BareKey::Tab if key.has_modifiers(&[KeyModifier::Shift]) => {
+                self.toggle_active_screen_reverse();
+                should_render = true;
+            },
+            BareKey::Char('/') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                let request_id = Uuid::new_v4();
+                let mut config = BTreeMap::new();
+                let mut args = BTreeMap::new();
+                self.request_ids.push(request_id.to_string());
+                // we insert this into the config so that a new plugin will be opened (the plugin's
+                // uniqueness is determined by its name/url as well as its config)
+                config.insert("request_id".to_owned(), request_id.to_string());
+                // we also insert this into the args so that the plugin will have an easier access to
+                // it
+                args.insert("request_id".to_owned(), request_id.to_string());
+                pipe_message_to_plugin(
+                    MessageToPlugin::new("filepicker")
+                        .with_plugin_url("filepicker")
+                        .with_plugin_config(config)
+                        .new_plugin_instance_should_have_pane_title(
+                            "Select folder for the new session...",
+                        )
+                        .new_plugin_instance_should_be_focused()
+                        .with_args(args),
+                );
+                should_render = true;
+            },
+            BareKey::Char('/') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
                 let request_id = Uuid::new_v4();
                 let mut config = BTreeMap::new();
                 let mut args = BTreeMap::new();
@@ -272,6 +329,20 @@ impl State {
     }
     fn handle_attach_to_session(&mut self, key: KeyWithModifier) -> bool {
         let mut should_render = false;
+        
+        // Universal quit keys - escape and ctrl+c always quit
+        match key.bare_key {
+            BareKey::Esc if key.has_no_modifiers() && !self.is_welcome_screen => {
+                hide_self();
+                return false;
+            },
+            BareKey::Char('c') if key.has_modifiers(&[KeyModifier::Ctrl]) && !self.is_welcome_screen => {
+                hide_self();
+                return false;
+            },
+            _ => {}
+        }
+        
         if self.show_kill_all_sessions_warning {
             match key.bare_key {
                 BareKey::Char('y') if key.has_no_modifiers() => {
@@ -304,12 +375,44 @@ impl State {
                     self.sessions.result_shrink();
                     should_render = true;
                 },
+                BareKey::Char('f') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    self.sessions.result_expand();
+                    should_render = true;
+                },
+                BareKey::Char('b') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    self.sessions.result_shrink();
+                    should_render = true;
+                },
                 BareKey::Down if key.has_no_modifiers() => {
                     self.sessions.move_selection_down();
                     should_render = true;
                 },
                 BareKey::Up if key.has_no_modifiers() => {
                     self.sessions.move_selection_up();
+                    should_render = true;
+                },
+                BareKey::Char('n') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    self.sessions.move_selection_down();
+                    should_render = true;
+                },
+                BareKey::Char('p') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    self.sessions.move_selection_up();
+                    should_render = true;
+                },
+                BareKey::Char('j') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    self.sessions.move_selection_down();
+                    should_render = true;
+                },
+                BareKey::Char('k') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    self.sessions.move_selection_up();
+                    should_render = true;
+                },
+                BareKey::Char('h') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    self.sessions.result_shrink();
+                    should_render = true;
+                },
+                BareKey::Char('l') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                    self.sessions.result_expand();
                     should_render = true;
                 },
                 BareKey::Enter if key.has_no_modifiers() => {
@@ -343,7 +446,7 @@ impl State {
                     should_render = true;
                 },
                 BareKey::Char('w') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
-                    self.active_screen = ActiveScreen::NewSession;
+                    self.active_screen = ActiveScreen::New;
                     should_render = true;
                 },
                 BareKey::Char('r') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
@@ -390,6 +493,10 @@ impl State {
                     self.toggle_active_screen();
                     should_render = true;
                 },
+                BareKey::Tab if key.has_modifiers(&[KeyModifier::Shift]) => {
+                    self.toggle_active_screen_reverse();
+                    should_render = true;
+                },
                 BareKey::Esc if key.has_no_modifiers() => {
                     if self.renaming_session_name.is_some() {
                         self.renaming_session_name = None;
@@ -405,12 +512,42 @@ impl State {
     }
     fn handle_resurrect_session_key(&mut self, key: KeyWithModifier) -> bool {
         let mut should_render = false;
+        
+        // Universal quit keys - escape and ctrl+c always quit
+        match key.bare_key {
+            BareKey::Esc if key.has_no_modifiers() && !self.is_welcome_screen => {
+                hide_self();
+                return false;
+            },
+            BareKey::Char('c') if key.has_modifiers(&[KeyModifier::Ctrl]) && !self.is_welcome_screen => {
+                hide_self();
+                return false;
+            },
+            _ => {}
+        }
+        
         match key.bare_key {
             BareKey::Down if key.has_no_modifiers() => {
                 self.resurrectable_sessions.move_selection_down();
                 should_render = true;
             },
             BareKey::Up if key.has_no_modifiers() => {
+                self.resurrectable_sessions.move_selection_up();
+                should_render = true;
+            },
+            BareKey::Char('n') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                self.resurrectable_sessions.move_selection_down();
+                should_render = true;
+            },
+            BareKey::Char('p') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                self.resurrectable_sessions.move_selection_up();
+                should_render = true;
+            },
+            BareKey::Char('j') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
+                self.resurrectable_sessions.move_selection_down();
+                should_render = true;
+            },
+            BareKey::Char('k') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
                 self.resurrectable_sessions.move_selection_up();
                 should_render = true;
             },
@@ -431,11 +568,15 @@ impl State {
                 should_render = true;
             },
             BareKey::Char('w') if key.has_modifiers(&[KeyModifier::Ctrl]) => {
-                self.active_screen = ActiveScreen::NewSession;
+                self.active_screen = ActiveScreen::New;
                 should_render = true;
             },
             BareKey::Tab if key.has_no_modifiers() => {
                 self.toggle_active_screen();
+                should_render = true;
+            },
+            BareKey::Tab if key.has_modifiers(&[KeyModifier::Shift]) => {
+                self.toggle_active_screen_reverse();
                 should_render = true;
             },
             BareKey::Delete if key.has_no_modifiers() => {
@@ -458,7 +599,7 @@ impl State {
     }
     fn handle_selection(&mut self) {
         match self.active_screen {
-            ActiveScreen::NewSession => {
+            ActiveScreen::New => {
                 if self.new_session_info.name().len() >= 108 {
                     // this is due to socket path limitations
                     // TODO: get this from Zellij (for reference: this is part of the interprocess
@@ -478,12 +619,12 @@ impl State {
                 }
                 self.new_session_info.handle_selection(&self.session_name);
             },
-            ActiveScreen::AttachToSession => {
-                if let Some(renaming_session_name) = &self.renaming_session_name.take() {
+            ActiveScreen::Attach => {
+                if let Some(renaming_session_name) = self.renaming_session_name.take() {
                     if renaming_session_name.is_empty() {
                         self.show_error("New name must not be empty.");
                         return; // so that we don't hide self
-                    } else if self.session_name.as_ref() == Some(renaming_session_name) {
+                    } else if &self.session_name == &Some(renaming_session_name.clone()) {
                         // noop - we're already called that!
                         return; // so that we don't hide self
                     } else if self.sessions.has_session(&renaming_session_name) {
@@ -541,7 +682,7 @@ impl State {
                     hide_self();
                 }
             },
-            ActiveScreen::ResurrectSession => {
+            ActiveScreen::Resurrect => {
                 if let Some(session_name_to_resurrect) =
                     self.resurrectable_sessions.get_selected_session_name()
                 {
@@ -552,16 +693,23 @@ impl State {
     }
     fn toggle_active_screen(&mut self) {
         self.active_screen = match self.active_screen {
-            ActiveScreen::NewSession => ActiveScreen::AttachToSession,
-            ActiveScreen::AttachToSession => ActiveScreen::ResurrectSession,
-            ActiveScreen::ResurrectSession => ActiveScreen::NewSession,
+            ActiveScreen::New => ActiveScreen::Attach,
+            ActiveScreen::Attach => ActiveScreen::Resurrect,
+            ActiveScreen::Resurrect => ActiveScreen::New,
+        };
+    }
+    fn toggle_active_screen_reverse(&mut self) {
+        self.active_screen = match self.active_screen {
+            ActiveScreen::New => ActiveScreen::Resurrect,
+            ActiveScreen::Attach => ActiveScreen::New,
+            ActiveScreen::Resurrect => ActiveScreen::Attach,
         };
     }
     fn show_error(&mut self, error_text: &str) {
         self.error = Some(error_text.to_owned());
     }
     fn update_current_session_name_in_ui(&mut self, new_name: &str) {
-        if let Some(old_session_name) = self.session_name.as_ref() {
+        if let Some(old_session_name) = &self.session_name {
             self.sessions
                 .update_session_name(&old_session_name, new_name);
         }
@@ -634,7 +782,7 @@ impl State {
         }
         let session_count = self.sessions.all_other_sessions().len();
         let session_count_len = session_count.to_string().chars().count();
-        let warning_description_text = format!("This will kill {} active sessions", session_count);
+        let warning_description_text = format!("This will kill {session_count} active sessions");
         let confirmation_text = "Are you sure? (y/n)";
         let warning_y_location = y + (rows / 2).saturating_sub(1);
         let confirmation_y_location = y + (rows / 2) + 1;

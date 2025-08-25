@@ -558,13 +558,13 @@ pub fn render_screen_toggle(
     let mut running_sessions_text = Text::new(running_sessions_text);
     let mut exited_sessions_text = Text::new(exited_sessions_text);
     match active_screen {
-        ActiveScreen::NewSession => {
+        ActiveScreen::New => {
             new_session_text = new_session_text.selected();
         },
-        ActiveScreen::AttachToSession => {
+        ActiveScreen::Attach => {
             running_sessions_text = running_sessions_text.selected();
         },
-        ActiveScreen::ResurrectSession => {
+        ActiveScreen::Resurrect => {
             exited_sessions_text = exited_sessions_text.selected();
         },
     }
@@ -929,14 +929,14 @@ pub fn render_controls_line(
     y: usize,
 ) {
     match active_screen {
-        ActiveScreen::NewSession => {
+        ActiveScreen::New => {
             if max_cols >= 50 {
                 print!(
                     "\u{1b}[m\u{1b}[{y};{x}H\u{1b}[1mHelp: Fill in the form to start a new session."
                 );
             }
         },
-        ActiveScreen::AttachToSession => {
+        ActiveScreen::Attach => {
             let rename = colors.shortcuts("<Ctrl r>");
             let rename_text = colors.bold("Rename");
             let disconnect = colors.shortcuts("<Ctrl x>");
@@ -954,7 +954,7 @@ pub fn render_controls_line(
                 print!("\u{1b}[m\u{1b}[{y};{x}H{rename}/{disconnect}/{kill}/{kill_all}");
             }
         },
-        ActiveScreen::ResurrectSession => {
+        ActiveScreen::Resurrect => {
             let arrows = colors.shortcuts("<↓↑>");
             let navigate = colors.bold("Navigate");
             let enter = colors.shortcuts("<ENTER>");
