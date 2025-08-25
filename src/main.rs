@@ -575,6 +575,49 @@ impl State {
                     }
                     should_render = true;
                 },
+                BareKey::Char('d') if key.has_modifiers(&[KeyModifier::Alt]) => {
+                    // Delete word forward (readline)
+                    if self.renaming_session_name.is_none() && self.search_cursor < self.search_term.len() {
+                        let mut new_cursor = self.search_cursor;
+                        let chars: Vec<char> = self.search_term.chars().collect();
+                        
+                        // Skip whitespace forward
+                        while new_cursor < chars.len() && chars[new_cursor].is_whitespace() {
+                            new_cursor += 1;
+                        }
+                        
+                        // Delete word forward
+                        while new_cursor < chars.len() && !chars[new_cursor].is_whitespace() {
+                            new_cursor += 1;
+                        }
+                        
+                        // Remove the characters
+                        self.search_term.drain(self.search_cursor..new_cursor);
+                        self.sessions
+                            .update_search_term(&self.search_term, &self.colors);
+                        should_render = true;
+                    }
+                },
+                BareKey::Char('x') if key.has_modifiers(&[KeyModifier::Alt]) => {
+                    // Delete character forward (readline)
+                    if self.renaming_session_name.is_none() && self.search_cursor < self.search_term.len() {
+                        self.search_term.remove(self.search_cursor);
+                        self.sessions
+                            .update_search_term(&self.search_term, &self.colors);
+                        should_render = true;
+                    }
+                },
+                BareKey::Char('x') if key.has_modifiers(&[KeyModifier::Alt, KeyModifier::Shift]) => {
+                    // Cut entire line (readline)
+                    if self.renaming_session_name.is_none() && !self.search_term.is_empty() {
+                        self.search_term.clear();
+                        self.search_cursor = 0;
+                        self.sessions
+                            .update_search_term(&self.search_term, &self.colors);
+                        self.reset_selected_index();
+                        should_render = true;
+                    }
+                },
                 BareKey::Tab if key.has_no_modifiers() => {
                     self.toggle_active_screen();
                     should_render = true;
