@@ -1075,7 +1075,9 @@ fn truncate_path(path: PathBuf, mut char_count_to_remove: usize) -> String {
     for (i, component) in path.iter().enumerate() {
         let mut component_str = component.to_string_lossy().to_string();
         if char_count_to_remove > 0 {
-            truncated.push(component_str.remove(0));
+            if !component_str.is_empty() {
+                truncated.push(component_str.remove(0));
+            }
             if i != 0 && i + 1 != component_count {
                 truncated.push('/');
             }

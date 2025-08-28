@@ -40,8 +40,12 @@ impl SessionList {
         if let Some(selected) = self.selected_index.0 {
             if selected >= self.session_ui_infos.len() {
                 // Selection is out of bounds, reset to current session if available
-                if !self.session_ui_infos.is_empty() && self.session_ui_infos[0].is_current_session {
-                    self.selected_index.0 = Some(0);
+                if let Some(first_session) = self.session_ui_infos.get(0) {
+                    if first_session.is_current_session {
+                        self.selected_index.0 = Some(0);
+                    } else {
+                        self.selected_index.0 = None;
+                    }
                 } else {
                     self.selected_index.0 = None;
                 }
@@ -51,8 +55,10 @@ impl SessionList {
             }
         } else {
             // Pre-select the current session only on first load to prevent flickering
-            if !self.session_ui_infos.is_empty() && self.session_ui_infos[0].is_current_session && !self.is_searching {
-                self.selected_index.0 = Some(0);
+            if let Some(first_session) = self.session_ui_infos.get(0) {
+                if first_session.is_current_session && !self.is_searching {
+                    self.selected_index.0 = Some(0);
+                }
             }
         }
     }
